@@ -2,9 +2,11 @@ package carter.fchains
 
 import org.specs2.mutable.Specification
 import ChainDsl._
+import ChainDsl.Chainable._
 import org.specs2.specification.Scope
 import shapeless.UnaryTCConstraint.*->*
 import shapeless._
+import shapeless.ops.hlist.Mapper
 
 class ChainSpec extends Specification {
 
@@ -66,17 +68,6 @@ class ChainSpec extends Specification {
       acceptStrFun(strLen :: strRev :: HNil)
     }
 
-//    "support Ifunction lambda" in {
-//      def acceptStrFun[FL <: HList](functions: FL)
-//                                   (implicit unaryTCConstraint: UnaryTCConstraint[FL, ({ type F[O] = Function1[String, O] })#F]) = true
-//
-//      val len: String => Int = _.length
-//      val reverse: String => String = _.reverse
-//
-//      acceptStrFun(HNil : HNil)
-//      acceptStrFun(len :: reverse :: HNil)
-//    }
-
   }
 
   "LUB Constraints" should {
@@ -94,17 +85,13 @@ class ChainSpec extends Specification {
 
     "chain transforms with chains" in new ChainScope {
       val chain = root ~~> strLen
-      chain must be equalTo ChainStep(root, strLen)
+      chain.get() must be equalTo ChainStep(root, strLen)
     }
 
     "chain multiple transforms with a chain" in new ChainScope {
       val transforms = strLen :: strRev :: HNil
       val chains = root ~~< transforms
-      val expected = SplitChain {
-        ChainStep(root, strLen) :: ChainStep(root, strRev) :: HNil
-      }
-      chains must be equalTo expected
-      chains.chains.head.run() should be equalTo 4
+      chains.get().run() should be equalTo 4 :: "evif" :: HNil
     }
   }
 }
