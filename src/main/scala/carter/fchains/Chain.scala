@@ -1,11 +1,11 @@
 package carter.fchains
 
 import shapeless._
-import shapeless.poly._
-import shapeless.ops.hlist.Mapper
+import shapeless.ops.hlist.{ConstMapper, Mapper, ZipApply}
 
 case class Provider[Out](f: () => Out)
 case class Transform[In, Out](f: In => Out)
+case class Merge[In <: HList, Out](f: In => Out)
 
 sealed trait Chain[Out] {
   def run(): Out
@@ -19,22 +19,29 @@ case class ChainStep[In, Out](chain: Chain[In], transform: Transform[In, Out]) e
 
 object ChainDsl {
 
+  case class SplitChain[Rep <: HList](chains: Rep)
+
+  // Given a Transform[I, O], create a Function[Transform[I, O], Chain[O]]
+  object ChainableFunction extends Poly1 {
+    implicit def atTransform[I, O] = at[Transform[I, O]] { transform: Transform[I, O] =>
+      (chain: Chain[I]) => ChainStep(chain, transform)
+    }
+  }
+
   implicit class ChainSyntax[I](chain: Chain[I]) {
     type TransformI[O] = Transform[I, O]
 
     def ~~>[O](transform: Transform[I, O]): Chain[O] = ChainStep(chain, transform)
 
-    object StepUp extends (TransformI ~> Chain) {
-      override def apply[O](transform: TransformI[O]): Chain[O] = ChainStep(chain, transform)
-    }
-
-    def ~~<[TRep <: HList, ORep <: HList]
+    def ~~<[TRep <: HList, FRep <: HList, CRep <: HList]
         (transforms: TRep)
         (implicit
-         constraint: LUBConstraint[TRep, Transform[I, _]],
-         mapper: Mapper.Aux[StepUp.type, TRep, ORep]): mapper.Out = {
-      transforms.map(StepUp)
+         mapper: Mapper.Aux[ChainableFunction.type, TRep, FRep],
+         mapConst: ConstMapper.Aux[Chain[I], TRep, CRep],
+         zipApply: ZipApply[FRep, CRep]): SplitChain[zipApply.Out] = {
+      SplitChain {
+        zipApply(mapper(transforms), mapConst(chain, transforms))
+      }
     }
-
   }
 }

@@ -98,11 +98,13 @@ class ChainSpec extends Specification {
     }
 
     "chain multiple transforms with a chain" in new ChainScope {
-
       val transforms = strLen :: strRev :: HNil
-      val chain = root ~~< transforms
-      val expected = ChainStep(root, strLen) :: ChainStep(root, strRev) :: HNil
-      chain must be equalTo expected
+      val chains = root ~~< transforms
+      val expected = SplitChain {
+        ChainStep(root, strLen) :: ChainStep(root, strRev) :: HNil
+      }
+      chains must be equalTo expected
+      chains.chains.head.run() should be equalTo 4
     }
   }
 }
