@@ -38,6 +38,10 @@ object ChainDsl {
     }
   }
 
+  trait Mergable[CH <: HList, OH <: HList] {
+    def get(): ChainSplit[CH, OH]
+  }
+
   // Given a Transform[I, O], create a Function[Transform[I, O], Chain[O]]
   object ChainableFunction extends Poly1 {
     implicit def atTransform[I, O] = at[Transform[I, O]] { transform: Transform[I, O] =>
@@ -60,10 +64,10 @@ object ChainDsl {
          mapper: Mapper.Aux[ChainableFunction.type, TRep, FRep],
          mapConst: ConstMapper.Aux[Chainable[I], TRep, CRep],
          zipApply: ZipApply.Aux[FRep, CRep, ORep],
-         outMapper: Mapper.Aux[RunChainable.type, ORep, Out]): Chainable[Out] = {
+         outMapper: Mapper.Aux[RunChainable.type, ORep, Out]): Mergable[ORep, Out] = {
 
-      new Chainable[Out] {
-        override def get(): Chain[Out] = {
+      new Mergable[ORep, Out] {
+        override def get(): ChainSplit[ORep, Out] = {
           ChainSplit(zipApply(mapper(transforms), mapConst(chainable, transforms)))
         }
       }
@@ -72,4 +76,9 @@ object ChainDsl {
 
   implicit class CSyntax[O](chain: Chain[O]) extends ChainSyntax[O](chain)
 
+  implicit class MergableSyntax[CH <: HList, OH <: HList](mergable: Mergable[CH, OH]) {
+    def >~~[O](merge: Transform[OH, O]): Chainable[O] = new Chainable[O] {
+      override def get(): Chain[O] = ChainStep(mergable.get(), merge)
+    }
+  }
 }

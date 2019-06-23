@@ -91,7 +91,16 @@ class ChainSpec extends Specification {
     "chain multiple transforms with a chain" in new ChainScope {
       val transforms = strLen :: strRev :: HNil
       val chains = root ~~< transforms
-      chains.get().run() should be equalTo 4 :: "evif" :: HNil
+      chains.get().run() must be equalTo 4 :: "evif" :: HNil
+    }
+
+    "merge split chains with a merge" in new ChainScope {
+      val merge = Transform[Int :: String :: HNil, String] {
+        case len :: rev :: HNil => len + ":" + rev
+      }
+      val transforms = strLen :: strRev :: HNil
+      val chain = root ~~< transforms >~~ merge
+      chain.get().run() must be equalTo "4:evif"
     }
   }
 }
