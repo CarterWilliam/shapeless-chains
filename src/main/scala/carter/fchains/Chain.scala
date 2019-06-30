@@ -2,29 +2,29 @@ package carter.fchains
 
 import carter.fchains.ChainDsl.Chainable
 import shapeless._
-import shapeless.ops.hlist.{ConstMapper, Mapper, ZipApply}
 
 case class Provider[Out](f: () => Out)
 case class Transform[In, Out](f: In => Out)
 case class Merge[In <: HList, Out](f: In => Out)
 
-trait Chain[Out] {
-  def run(): Out
+trait Chain[Out]
+case class ChainRoot[Out](provider: Provider[Out]) extends Chain[Out]
+case class ChainStep[In, Out](chain: Chain[In], transform: Transform[In, Out]) extends Chain[Out]
+case class ChainSplit[+CH <: HList, OH <: HList](chains: CH)
+     (implicit runner: SplitChainRunner.Aux[CH, OH]) extends Chain[OH] {
+
+  def run(executor: ChainExecutor): OH = {
+    runner.run(chains, executor)
+  }
 }
-case class ChainRoot[Out](provider: Provider[Out]) extends Chain[Out] {
-  def run(): Out = provider.f.apply()
-}
-case class ChainStep[In, Out](chain: Chain[In], transform: Transform[In, Out]) extends Chain[Out] {
-  def run(): Out = transform.f(chain.run())
-}
-case class ChainSplit[CH <: HList, OH <: HList](chains: CH)
-     (implicit
-      val runAll: Mapper.Aux[RunChainable.type, CH, OH]) extends Chain[OH] {
-  def run(): OH = runAll(chains)
+
+
+trait ChainExecutor {
+  def execute[O](chain: Chain[O]): O
 }
 
 object RunChainable extends Poly1 {
-  implicit def atChainable[O] = at[Chainable[O]](_.get().run())
+  implicit def atChainable[O] = at[Chainable[O]](_.get())
 }
 
 object ChainDsl {
@@ -42,33 +42,30 @@ object ChainDsl {
     def get(): ChainSplit[CH, OH]
   }
 
-  // Given a Transform[I, O], create a Function[Transform[I, O], Chain[O]]
-  object ChainableFunction extends Poly1 {
-    implicit def atTransform[I, O] = at[Transform[I, O]] { transform: Transform[I, O] =>
-      (chain: Chainable[I]) => new Chainable[O] {
-        override def get(): Chain[O] = ChainStep(chain.get(), transform)
-      }
-    }
-  }
+//  // Given a Transform[I, O], create a Function[Transform[I, O], Chain[O]]
+//  object ChainableFunction extends Poly1 {
+//    implicit def atTransform[I, O] = at[Transform[I, O]] { transform: Transform[I, O] =>
+//      (chain: Chainable[I]) => new Chainable[O] {
+//        override def get(): Chain[O] = ChainStep(chain.get(), transform)
+//      }
+//    }
+//  }
 
   implicit class ChainSyntax[I](chainable: Chainable[I]) {
-    type TransformI[O] = Transform[I, O]
 
     def ~~>[O](transform: Transform[I, O]): Chainable[O] = new Chainable[O] {
       override def get(): Chain[O] = ChainStep(chainable.get(), transform)
     }
 
-    def ~~<[TRep <: HList, FRep <: HList, CRep <: HList, ORep <: HList, Out <: HList]
+    def ~~<[TRep <: HList, CRep <: HList, ORep <: HList]
         (transforms: TRep)
         (implicit
-         mapper: Mapper.Aux[ChainableFunction.type, TRep, FRep],
-         mapConst: ConstMapper.Aux[Chainable[I], TRep, CRep],
-         zipApply: ZipApply.Aux[FRep, CRep, ORep],
-         outMapper: Mapper.Aux[RunChainable.type, ORep, Out]): Mergable[ORep, Out] = {
+         splitter: ChainSplitter.Aux[I, TRep, CRep],
+         runner: SplitChainRunner[CRep]): Mergable[CRep, runner.Out] = {
 
-      new Mergable[ORep, Out] {
-        override def get(): ChainSplit[ORep, Out] = {
-          ChainSplit(zipApply(mapper(transforms), mapConst(chainable, transforms)))
+      new Mergable[CRep, runner.Out] {
+        override def get(): ChainSplit[CRep, runner.Out] = {
+          ChainSplit(splitter.split(transforms, chainable.get()))(runner)
         }
       }
     }
@@ -79,6 +76,64 @@ object ChainDsl {
   implicit class MergableSyntax[CH <: HList, OH <: HList](mergable: Mergable[CH, OH]) {
     def >~~[O](merge: Transform[OH, O]): Chainable[O] = new Chainable[O] {
       override def get(): Chain[O] = ChainStep(mergable.get(), merge)
+    }
+  }
+
+}
+
+trait ChainSplitter[T, -TH <: HList] {
+  type Out <: HList
+  def split(transforms: TH, chain: Chain[T]): Out
+}
+
+object ChainSplitter {
+  def apply[T, TH <: HList, CH <: HList](implicit splitter: ChainSplitter[T, TH]): Aux[T, TH, splitter.Out] = splitter
+
+  type Aux[T, TH <: HList, CH <: HList] = ChainSplitter[T, TH] { type Out = CH }
+
+  implicit def hnilChainSplitter[T]: Aux[T, HNil, HNil] = new ChainSplitter[T, HNil] {
+    type Out = HNil
+    def split(transforms: HNil, chain: Chain[T]): Out = HNil
+  }
+
+  implicit def hconsChainSplitter[T, O, TH <: HList, CH <: HList]
+      (implicit splitter: Aux[T, TH, CH]): Aux[T, Transform[T, O] :: TH, Chain[O] :: CH] = {
+    new ChainSplitter[T, Transform[T, O] :: TH] {
+      type Out = Chain[O] :: CH
+      def split(transforms: Transform[T, O] :: TH, chain: Chain[T]): Out = {
+        ChainStep(chain, transforms.head) :: splitter.split(transforms.tail, chain)
+      }
+    }
+  }
+}
+
+trait SplitChainRunner[-CH <: HList] {
+  type Out <: HList
+  def run(chains: CH, executor: ChainExecutor): Out
+}
+
+object SplitChainRunner {
+
+  def apply[CH <: HList, OH <: HList]
+    (implicit runner: SplitChainRunner[CH]): Aux[CH, runner.Out] = runner
+
+  type Aux[CH <: HList, Out0 <: HList] = SplitChainRunner[CH] { type Out = Out0 }
+
+  implicit def hnilRunner: Aux[HNil, HNil] = {
+    new SplitChainRunner[HNil] {
+      override type Out = HNil
+      override def run(chains: HNil, executor: ChainExecutor): Out = HNil
+    }
+  }
+
+
+  implicit def hconsRunner[O, CH <: HList, OH <: HList]
+    (implicit runner: SplitChainRunner.Aux[CH, OH]): Aux[Chain[O] :: CH, O :: OH] = {
+    new SplitChainRunner[Chain[O] :: CH] {
+      override type Out = O :: OH
+      override def run(chains: Chain[O] :: CH, executor: ChainExecutor): Out = {
+        executor.execute(chains.head) :: runner.run(chains.tail, executor)
+      }
     }
   }
 }

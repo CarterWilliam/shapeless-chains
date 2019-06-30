@@ -17,7 +17,9 @@ class ChainSpec extends Specification {
     "chain multiple transforms with a chain" in new ChainScope {
       val transforms = strLen :: strRev :: HNil
       val chains = root ~~< transforms
-      chains.get().run() must be equalTo 4 :: "evif" :: HNil
+      val expected = ChainSplit(ChainStep(root, strLen) :: ChainStep(root, strRev) :: HNil)
+      TheChainExecutor.execute(chains.get()) must be equalTo 4 :: "evif" :: HNil
+      chains.get() must be equalTo expected
     }
 
     "merge split chains with a merge" in new ChainScope {
@@ -26,14 +28,14 @@ class ChainSpec extends Specification {
       }
       val transforms = strLen :: strRev :: HNil
       val chain = root ~~< transforms >~~ merge
-      chain.get().run() must be equalTo "4:evif"
+      chain.get() must be equalTo
+        ChainStep(ChainSplit(ChainStep(root, strLen) :: ChainStep(root, strRev) :: HNil), merge)
     }
   }
 }
 
 trait ChainScope extends Scope {
   val root = ChainRoot(Provider(() => "five"))
-  val root5 = ChainRoot(Provider(() => 5))
   val strLen = Transform[String, Int](_.length)
   val strRev = Transform[String, String](_.reverse)
 }
