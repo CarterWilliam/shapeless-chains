@@ -19,7 +19,7 @@ case class ChainStep[In, Out](chain: Chain[In], transform: Transform[In, Out]) e
 }
 case class ChainSplit[CH <: HList, OH <: HList](chains: CH)
      (implicit
-      runAll: Mapper.Aux[RunChainable.type, CH, OH]) extends Chain[OH] {
+      val runAll: Mapper.Aux[RunChainable.type, CH, OH]) extends Chain[OH] {
   def run(): OH = runAll(chains)
 }
 
