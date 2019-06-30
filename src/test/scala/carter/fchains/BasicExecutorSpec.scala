@@ -3,17 +3,17 @@ package carter.fchains
 import org.specs2.mutable.Specification
 import shapeless._
 
-class TheChainExecutorSpec extends Specification {
+class BasicExecutorSpec extends Specification {
 
   "The ChainExecutor" should {
     "execute a chain root" in {
       val source = ChainRoot(Provider(() => 4))
-      TheChainExecutor.execute(source) should be equalTo 4
+      BasicExecutor.execute(source) should be equalTo 4
     }
 
     "execute a chain step" in {
       val chain = ChainStep(ChainRoot(Provider(() => 4)), Transform[Int, Int] { _ * 3 })
-      TheChainExecutor.execute(chain) should be equalTo 12
+      BasicExecutor.execute(chain) should be equalTo 12
     }
 
     "execute split chains" in {
@@ -24,7 +24,7 @@ class TheChainExecutorSpec extends Specification {
       val dubChain: Chain[Int] = ChainStep(source, double)
       val chain = ChainSplit(addChain :: dubChain :: HNil)
       val expected = 6 :: 8 :: HNil
-      TheChainExecutor.execute(chain) should be equalTo expected
+      BasicExecutor.execute(chain) should be equalTo expected
     }
 
     "execute a merge" in {
@@ -35,7 +35,7 @@ class TheChainExecutorSpec extends Specification {
       val dubChain: Chain[Int] = ChainStep(source, double)
       val splitChain = ChainSplit(addChain :: dubChain :: HNil)
       val mergeChain = ChainStep(splitChain, Transform[Int :: Int :: HNil, Int] { case one :: two :: HNil => one + two })
-      TheChainExecutor.execute(mergeChain) should be equalTo 11
+      BasicExecutor.execute(mergeChain) should be equalTo 11
     }
   }
 }

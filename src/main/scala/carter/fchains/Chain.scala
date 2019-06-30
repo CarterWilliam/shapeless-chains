@@ -1,6 +1,7 @@
 package carter.fchains
 
-import carter.fchains.ChainDsl.Chainable
+import cats.Monad
+import cats.implicits._
 import shapeless._
 
 case class Provider[Out](f: () => Out)
@@ -13,18 +14,14 @@ case class ChainStep[In, Out](chain: Chain[In], transform: Transform[In, Out]) e
 case class ChainSplit[+CH <: HList, OH <: HList](chains: CH)
      (implicit runner: SplitChainRunner.Aux[CH, OH]) extends Chain[OH] {
 
-  def run(executor: ChainExecutor): OH = {
+  def run[F[_] : Monad](executor: ChainExecutor[F]): F[OH] = {
     runner.run(chains, executor)
   }
 }
 
 
-trait ChainExecutor {
-  def execute[O](chain: Chain[O]): O
-}
-
-object RunChainable extends Poly1 {
-  implicit def atChainable[O] = at[Chainable[O]](_.get())
+trait ChainExecutor[F[_]] {
+  def execute[O](chain: Chain[O]): F[O]
 }
 
 object ChainDsl {
@@ -41,15 +38,6 @@ object ChainDsl {
   trait Mergable[CH <: HList, OH <: HList] {
     def get(): ChainSplit[CH, OH]
   }
-
-//  // Given a Transform[I, O], create a Function[Transform[I, O], Chain[O]]
-//  object ChainableFunction extends Poly1 {
-//    implicit def atTransform[I, O] = at[Transform[I, O]] { transform: Transform[I, O] =>
-//      (chain: Chainable[I]) => new Chainable[O] {
-//        override def get(): Chain[O] = ChainStep(chain.get(), transform)
-//      }
-//    }
-//  }
 
   implicit class ChainSyntax[I](chainable: Chainable[I]) {
 
@@ -109,7 +97,7 @@ object ChainSplitter {
 
 trait SplitChainRunner[-CH <: HList] {
   type Out <: HList
-  def run(chains: CH, executor: ChainExecutor): Out
+  def run[F[_] : Monad](chains: CH, executor: ChainExecutor[F]): F[Out]
 }
 
 object SplitChainRunner {
@@ -122,18 +110,23 @@ object SplitChainRunner {
   implicit def hnilRunner: Aux[HNil, HNil] = {
     new SplitChainRunner[HNil] {
       override type Out = HNil
-      override def run(chains: HNil, executor: ChainExecutor): Out = HNil
+      override def run[F[_] : Monad](chains: HNil, executor: ChainExecutor[F]): F[Out] = {
+        implicitly[Monad[F]].pure(HNil)
+      }
     }
   }
 
 
   implicit def hconsRunner[O, CH <: HList, OH <: HList]
     (implicit runner: SplitChainRunner.Aux[CH, OH]): Aux[Chain[O] :: CH, O :: OH] = {
-    new SplitChainRunner[Chain[O] :: CH] {
-      override type Out = O :: OH
-      override def run(chains: Chain[O] :: CH, executor: ChainExecutor): Out = {
-        executor.execute(chains.head) :: runner.run(chains.tail, executor)
+      new SplitChainRunner[Chain[O] :: CH] {
+        override type Out = O :: OH
+        override def run[F[_] : Monad](chains: Chain[O] :: CH, executor: ChainExecutor[F]): F[Out] = {
+          for {
+            head <- executor.execute(chains.head)
+            tail <- runner.run[F](chains.tail, executor)
+          } yield head :: tail
+        }
       }
-    }
   }
 }

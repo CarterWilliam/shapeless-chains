@@ -1,6 +1,8 @@
 package carter.fchains
 
-object TheChainExecutor extends ChainExecutor {
+import cats.Id
+
+object BasicExecutor extends ChainExecutor[Id] {
 
   def execute[Out](chain: Chain[Out]): Out = chain match {
     case ChainRoot(provider) =>

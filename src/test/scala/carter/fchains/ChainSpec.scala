@@ -18,7 +18,7 @@ class ChainSpec extends Specification {
       val transforms = strLen :: strRev :: HNil
       val chains = root ~~< transforms
       val expected = ChainSplit(ChainStep(root, strLen) :: ChainStep(root, strRev) :: HNil)
-      TheChainExecutor.execute(chains.get()) must be equalTo 4 :: "evif" :: HNil
+      BasicExecutor.execute(chains.get()) must be equalTo 4 :: "evif" :: HNil
       chains.get() must be equalTo expected
     }
 
